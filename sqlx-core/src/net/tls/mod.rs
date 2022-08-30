@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use std::convert::TryFrom;
 use std::io;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
@@ -191,7 +190,7 @@ where
         }
     }
 
-    #[cfg(any(feature = "_rt-actix", feature = "_rt-tokio"))]
+    #[cfg(feature = "_rt-tokio")]
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match &mut *self {
             MaybeTlsStream::Raw(s) => Pin::new(s).poll_shutdown(cx),

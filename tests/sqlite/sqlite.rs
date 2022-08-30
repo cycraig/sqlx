@@ -194,7 +194,7 @@ async fn it_executes_with_pool() -> anyhow::Result<()> {
         .min_connections(2)
         .max_connections(2)
         .test_before_acquire(false)
-        .connect(&dotenv::var("DATABASE_URL")?)
+        .connect(&dotenvy::var("DATABASE_URL")?)
         .await?;
 
     let rows = pool.fetch_all("SELECT 1; SElECT 2").await?;
@@ -234,7 +234,7 @@ async fn it_fails_to_parse() -> anyhow::Result<()> {
     let err = res.unwrap_err().to_string();
 
     assert_eq!(
-        "error returned from database: near \"SEELCT\": syntax error",
+        "error returned from database: (code: 1) near \"SEELCT\": syntax error",
         err
     );
 
@@ -456,7 +456,7 @@ async fn it_caches_statements() -> anyhow::Result<()> {
     assert_eq!(0, conn.cached_statements_size());
 
     // `Query` is not persistent if `.persistent(false)` is used
-    // explicity.
+    // explicitly.
     let mut conn = new::<Sqlite>().await?;
     for i in 0..2 {
         let row = sqlx::query("SELECT ? AS val")

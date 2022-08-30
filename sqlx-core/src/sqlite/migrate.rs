@@ -7,29 +7,40 @@ use crate::migrate::{Migrate, MigrateDatabase};
 use crate::query::query;
 use crate::query_as::query_as;
 use crate::query_scalar::query_scalar;
-use crate::sqlite::{Sqlite, SqliteConnectOptions, SqliteConnection};
+use crate::sqlite::{Sqlite, SqliteConnectOptions, SqliteConnection, SqliteJournalMode};
 use futures_core::future::BoxFuture;
 use sqlx_rt::fs;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
 impl MigrateDatabase for Sqlite {
-    fn create_database(uri: &str) -> BoxFuture<'_, Result<(), Error>> {
+    fn create_database(url: &str) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
+            let mut opts = SqliteConnectOptions::from_str(url)?.create_if_missing(true);
+
+            // Since it doesn't make sense to include this flag in the connection URL,
+            // we just use an `AtomicBool` to pass it.
+            if super::CREATE_DB_WAL.load(Ordering::Acquire) {
+                opts = opts.journal_mode(SqliteJournalMode::Wal);
+            }
+
             // Opening a connection to sqlite creates the database
-            let _ = SqliteConnectOptions::from_str(uri)?
-                .create_if_missing(true)
+            let _ = opts
                 .connect()
+                .await?
+                // Ensure WAL mode tempfiles are cleaned up
+                .close()
                 .await?;
 
             Ok(())
         })
     }
 
-    fn database_exists(uri: &str) -> BoxFuture<'_, Result<bool, Error>> {
+    fn database_exists(url: &str) -> BoxFuture<'_, Result<bool, Error>> {
         Box::pin(async move {
-            let options = SqliteConnectOptions::from_str(uri)?;
+            let options = SqliteConnectOptions::from_str(url)?;
 
             if options.in_memory {
                 Ok(true)
@@ -39,9 +50,9 @@ impl MigrateDatabase for Sqlite {
         })
     }
 
-    fn drop_database(uri: &str) -> BoxFuture<'_, Result<(), Error>> {
+    fn drop_database(url: &str) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
-            let options = SqliteConnectOptions::from_str(uri)?;
+            let options = SqliteConnectOptions::from_str(url)?;
 
             if !options.in_memory {
                 fs::remove_file(&*options.filename).await?;

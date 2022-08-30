@@ -59,7 +59,7 @@ impl Migrator {
         })
     }
 
-    /// Specify should ignore applied migrations that missing in the resolved migrations.
+    /// Specify whether applied migrations that are missing from the resolved migrations should be ignored.
     pub fn set_ignore_missing(&mut self, ignore_missing: bool) -> &Self {
         self.ignore_missing = ignore_missing;
         self
@@ -93,7 +93,15 @@ impl Migrator {
         <A::Connection as Deref>::Target: Migrate,
     {
         let mut conn = migrator.acquire().await?;
+        self.run_direct(&mut *conn).await
+    }
 
+    // Getting around the annoying "implementation of `Acquire` is not general enough" error
+    #[doc(hidden)]
+    pub async fn run_direct<C>(&self, conn: &mut C) -> Result<(), MigrateError>
+    where
+        C: Migrate,
+    {
         // lock the database for exclusive access by the migrator
         conn.lock().await?;
 

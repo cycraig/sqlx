@@ -10,7 +10,6 @@ use crate::query_scalar::{query_scalar, query_scalar_with};
 use crate::types::Json;
 use crate::HashMap;
 use futures_core::future::BoxFuture;
-use std::convert::TryFrom;
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -467,10 +466,8 @@ fn visit_plan(plan: &Plan, outputs: &[String], nullables: &mut Vec<Option<bool>>
     if let Some(plan_outputs) = &plan.output {
         // all outputs of a Full Join must be marked nullable
         // otherwise, all outputs of the inner half of an outer join must be marked nullable
-        if let Some("Full") | Some("Inner") = plan
-            .join_type
-            .as_deref()
-            .or(plan.parent_relation.as_deref())
+        if plan.join_type.as_deref() == Some("Full")
+            || plan.parent_relation.as_deref() == Some("Inner")
         {
             for output in plan_outputs {
                 if let Some(i) = outputs.iter().position(|o| o == output) {
