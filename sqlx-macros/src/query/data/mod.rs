@@ -27,13 +27,17 @@ impl<DB: DatabaseExt> QueryData<DB> {
         conn: impl Executor<'_, Database = DB>,
         query: &str,
     ) -> crate::Result<Self> {
-        Ok(QueryData {
+        Ok(Self::from_describe(query, conn.describe(query).await?))
+    }
+
+    pub fn from_describe(query: &str, describe: Describe<DB>) -> Self {
+        QueryData {
             query: query.into(),
-            describe: conn.describe(query).await?,
+            describe,
             #[cfg(feature = "offline")]
-            hash: super::hash_string(query),
+            hash: offline::hash_string(query),
             #[cfg(feature = "offline")]
             db_name: offline::SerializeDbName::default(),
-        })
+        }
     }
 }

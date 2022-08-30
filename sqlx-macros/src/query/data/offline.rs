@@ -32,7 +32,8 @@ use sqlx_core::sqlite::Sqlite;
 #[cfg(feature = "mssql")]
 use sqlx_core::mssql::Mssql;
 
-static CACHE: Lazy<Mutex<HashMap<PathBuf, Arc<dyn DynQueryData>>>> = Lazy::new(Default::default);
+static OFFLINE_DATA_CACHE: Lazy<Mutex<HashMap<PathBuf, Arc<dyn DynQueryData>>>> =
+    Lazy::new(Default::default);
 
 pub struct SerializeDbName<DB>(PhantomData<DB>);
 
@@ -78,34 +79,42 @@ impl<DB: DatabaseExt> QueryData<DB>
 where
     Describe<DB>: serde::Serialize + serde::de::DeserializeOwned,
 {
-    pub(crate) fn save(&self, meta: &Metadata, input_span: Span) -> crate::Result<()> {
-        let output_dir = meta.target_dir.join("sqlx");
+    // TODO: is from_dyn_data still needed?
 
-        fs::create_dir_all(&output_dir)
-            .map_err(|e| format!("failed to create $TARGET_DIR/sqlx: {:?}", e))?;
+    pub(crate) fn save_in(
+        &self,
+        dir: impl AsRef<Path>,
+        meta: &Metadata,
+        input_span: Span,
+    ) -> crate::Result<()> {
+        // Output to a temporary directory first, then move/rename it atomically to avoid conflicts.
+        let tmp_dir = meta.target_dir.join("sqlx");
+        fs::create_dir_all(&dir).map_err(|e| {
+            format!(
+                "failed to create offline query directory {}: {:?}",
+                dir.as_ref().display(),
+                e
+            )
+        })?;
 
-        // we save under the hash of the span representation because that should be unique
-        // per invocation
-        let path = output_dir.join(&format!(
+        // We save under the hash of the span representation because that should be unique
+        // per invocation.
+        let tmp_path = tmp_dir.join(&format!(
             "query-{}.json",
-            query::hash_string(&format!("{:?}", input_span))
+            hash_string(&format!("{:?}", input_span))
         ));
-
         serde_json::to_writer_pretty(
             BufWriter::new(
-                File::create(&path)
-                    .map_err(|e| format!("failed to open path {}: {}", path.display(), e))?,
+                File::create(&tmp_path)
+                    .map_err(|e| format!("failed to open path {}: {}", tmp_path.display(), e))?,
             ),
             self,
         )?;
 
-        let final_path = meta
-            .workspace_root()
-            .join(&format!(".sqlx/query-{}.json", self.hash));
-
-        // renaming is atomic so we don't clash with other invocations trying to write
-        // to the same place
-        fs::rename(&path, &final_path)
+        // Renaming is atomic so we don't clash with other invocations trying to write
+        // to the same place.
+        let final_path = dir.as_ref().join(&format!("query-{}.json", self.hash));
+        fs::rename(&tmp_path, &final_path)
             .map_err(|e| format!("failed to move query data to final destination: {:?}", e))?;
 
         Ok(())
@@ -185,7 +194,7 @@ impl_dyn_query_data!(
 );
 
 pub fn get_data(query: &str, path: &Path) -> crate::Result<Arc<dyn DynQueryData>> {
-    let mut cache = CACHE.lock().unwrap();
+    let mut cache = OFFLINE_DATA_CACHE.lock().unwrap();
 
     if let Some(cached) = cache.get(path).cloned() {
         return Ok(cached);
@@ -241,4 +250,12 @@ pub fn get_data(query: &str, path: &Path) -> crate::Result<Arc<dyn DynQueryData>
     let _ = cache.insert(path.to_owned(), dyn_data.clone());
 
     Ok(dyn_data)
+}
+
+/// Computes the SHA-256 digest of a string.
+pub(crate) fn hash_string(query: &str) -> String {
+    // picked `sha2` because it's already in the dependency tree for both MySQL and Postgres
+    use sha2::{Digest, Sha256};
+
+    hex::encode(Sha256::digest(query.as_bytes()))
 }

@@ -1,5 +1,6 @@
 use std::fs;
 
+use crate::query::data;
 use proc_macro2::{Ident, Span};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
@@ -104,7 +105,7 @@ impl Parse for QueryMacroInput {
 
         Ok(QueryMacroInput {
             #[cfg(feature = "offline")]
-            hash: super::hash_string(&sql),
+            hash: data::offline::hash_string(&sql),
             sql,
             src_span,
             record_type,

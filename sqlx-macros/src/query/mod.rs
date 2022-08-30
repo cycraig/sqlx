@@ -157,22 +157,25 @@ pub fn expand_input(input: QueryMacroInput) -> crate::Result<TokenStream> {
 
         #[cfg(feature = "offline")]
         _ => {
-            // TODO: change to METADATA.manifest_dir?
-            let workspace_root = METADATA.workspace_root();
+            // Try load the cached query from the current package directory.
+            let filename = format!("query-{}.json", input.hash);
+            let local_data_dir = METADATA.manifest_dir
+              .join(".sqlx");
+            let local_data_file_path = local_data_dir.join(&filename);
 
-            let data_dir = workspace_root.join(".sqlx");
-
-            if data_file_path.exists() {
-                expand_from_file(input, data_file_path)
+            if local_data_file_path.exists() {
+                expand_from_file(input, local_data_file_path)
             } else {
-                // TODO: change to .sqlx
-                let workspace_data_file_path = workspace_root.join("sqlx-data.json");
+                // See if the query was included in a workspace data cache.
+                let workspace_data_file_path = METADATA.workspace_root()
+                  .join(".sqlx")
+                  .join(&filename);
                 if workspace_data_file_path.exists() {
                     expand_from_file(input, workspace_data_file_path)
                 } else {
                     Err(
                         "`DATABASE_URL` must be set, or `cargo sqlx prepare` must have been run \
-                     and sqlx-data.json must exist, to use query macros"
+                     and .sqlx must exist, to use query macros"
                             .into(),
                     )
                 }
@@ -434,7 +437,7 @@ where
                 }
 
                 // .sqlx exists and is a directory, store data
-                data.save_in(save_dir, input.src_span)?;
+                data.save_in(save_dir, &METADATA, input.src_span)?;
             }
         }
     }

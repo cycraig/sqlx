@@ -1,10 +1,15 @@
-use anyhow::Result;
-use futures::{Future, TryFutureExt};
-use sqlx::{AnyConnection, Connection};
 use std::io;
 use std::time::Duration;
 
+use anyhow::Result;
+use futures::{Future, TryFutureExt};
+
+use sqlx::{AnyConnection, Connection};
+
 use crate::opt::{Command, ConnectOpts, DatabaseCommand, MigrateCommand};
+use crate::prepare::PrepareCtx;
+
+pub use crate::opt::Opt;
 
 mod database;
 mod metadata;
@@ -13,8 +18,6 @@ mod metadata;
 mod migrate;
 mod opt;
 mod prepare;
-
-pub use crate::opt::Opt;
 
 pub async fn run(opt: Opt) -> Result<()> {
     match opt.command {
@@ -81,7 +84,7 @@ pub async fn run(opt: Opt) -> Result<()> {
         Command::Prepare {
             check,
             workspace,
-            database_url,
+            connect_opts,
             args,
         } => {
             let cargo_path = cargo::cargo_path()?;
@@ -89,7 +92,7 @@ pub async fn run(opt: Opt) -> Result<()> {
 
             let manifest_dir = cargo::manifest_dir(&cargo_path)?;
             let metadata = cargo::metadata(&cargo_path)
-              .context("`prepare` subcommand may only be invoked as `cargo sqlx prepare`")?;
+                .context("`prepare` subcommand may only be invoked as `cargo sqlx prepare`")?;
 
             let ctx = PrepareCtx {
                 workspace,
@@ -98,7 +101,7 @@ pub async fn run(opt: Opt) -> Result<()> {
                 manifest_dir,
                 target_dir: metadata.target_directory,
                 workspace_root: metadata.workspace_root,
-                database_url,
+                connect_ops,
             };
 
             println!("{:?}", ctx);
@@ -108,7 +111,7 @@ pub async fn run(opt: Opt) -> Result<()> {
             } else {
                 prepare::run(&ctx)?
             }
-        },
+        }
     };
 
     Ok(())

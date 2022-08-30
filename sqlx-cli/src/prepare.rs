@@ -1,15 +1,5 @@
-use anyhow::bail;
-use std::ffi::OsString;
-use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
-use crate::opt::ConnectOpts;
-use anyhow::{bail, Context};
-use console::style;
-use remove_dir_all::remove_dir_all;
-use sqlx::any::{AnyConnectOptions, AnyKind};
-use sqlx::Connection;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
@@ -17,7 +7,14 @@ use std::process::Command;
 use std::time::SystemTime;
 use std::{env, fs};
 
+use anyhow::{bail, Context};
+use console::style;
+
+use sqlx::any::{AnyConnectOptions, AnyKind};
+use sqlx::Connection;
+
 use crate::metadata::Metadata;
+use crate::opt::ConnectOpts;
 
 type QueryData = BTreeMap<String, serde_json::Value>;
 type JsonObject = serde_json::Map<String, serde_json::Value>;
@@ -31,7 +28,7 @@ pub struct PrepareCtx {
     pub manifest_dir: PathBuf,
     pub target_dir: PathBuf,
     pub workspace_root: PathBuf,
-    pub database_url: Option<String>,
+    pub connect_ops: ConnectOpts,
 }
 
 pub fn run(ctx: &PrepareCtx) -> anyhow::Result<()> {
@@ -66,6 +63,7 @@ pub fn check(ctx: &PrepareCtx) -> anyhow::Result<()> {
     // Ensure the database server is available.
     crate::connect(connect_opts).await?.close().await?;
 
+    // Re-generate and store the queries in a separate directory.
     let cache_dir = ctx.target_dir.join("sqlx");
     run_prepare_step(ctx, &cache_dir)?;
 
@@ -83,12 +81,8 @@ fn run_prepare_step(ctx: &PrepareCtx, cache_dir: &Path) -> anyhow::Result<()> {
 hint: This command only works in the manifest directory of a Cargo package."#
     );
 
-    // TODO: use remove_dir_all::ensure_empty_dir?
-    if cache_dir.exists() {
-        clear_cache_dir(cache_dir)?;
-    } else {
-        fs::create_dir(cache_dir)?;
-    }
+    // Clear or create the directory.
+    remove_dir_all::ensure_empty_dir(cache_dir)?;
 
     let output = Command::new(&ctx.cargo)
         .args(&["metadata", "--format-version=1"])
@@ -117,10 +111,7 @@ hint: This command only works in the manifest directory of a Cargo package."#
             }
         };
 
-        let mut check_command = Command::new(&cargo);
-        check_command
-            .arg("check")
-            .args(cargo_args);
+        check_cmd.arg("check").args(cargo_args);
 
         // `cargo check` recompiles on changed rust flags which can be set either via the env var
         // or through the `rustflags` field in `$CARGO_HOME/config` when the env var isn't set.
@@ -144,12 +135,8 @@ hint: This command only works in the manifest directory of a Cargo package."#
             .env("CARGO_TARGET_DIR", metadata.target_directory().clone())
             .status()?
     }
-    // TODO: change this, previously url was passed in as a parameter?
-    // override database url
-    if let Some(database_url) = &ctx.database_url {
-        check_cmd.env("DATABASE_URL", database_url);
-    }
     check_cmd
+        .env("DATABASE_URL", database_url)
         .env("SQLX_OFFLINE", "false")
         .env("SQLX_OFFLINE_DIR", cache_dir);
 
@@ -158,14 +145,6 @@ hint: This command only works in the manifest directory of a Cargo package."#
     let check_status = check_cmd.status()?;
     if !check_status.success() {
         bail!("`cargo check` failed with status: {}", check_status);
-    }
-
-    Ok(())
-}
-
-fn clear_cache_dir(path: &Path) -> anyhow::Result<()> {
-    for entry in fs::read_dir(path)? {
-        fs::remove_file(entry?.path())?;
     }
 
     Ok(())
@@ -282,7 +261,7 @@ mod tests {
                 touch_paths: vec![
                     "/home/user/problematic/workspace/b_in_workspace_lib/src/lib.rs".into(),
                     "/home/user/problematic/workspace/c_in_workspace_bin/src/main.rs".into(),
-                ]
+                ],
             }
         );
 
