@@ -420,7 +420,9 @@ where
         // data.save_in(save_dir, input.src_span)?;
         use std::{fs, io};
 
-        let save_dir = METADATA.manifest_dir.join(".sqlx");
+        let save_dir: PathBuf = env("SQLX_OFFLINE_DIR")
+            .map_err(|err| format!("SQLX_OFFLINE_DIR should be set by prepare: {}", err))?
+            .into();
         match fs::metadata(&save_dir) {
             Err(e) => {
                 if e.kind() != io::ErrorKind::NotFound {

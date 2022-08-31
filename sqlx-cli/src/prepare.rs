@@ -1,23 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::ffi::{OsStr, OsString};
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
-use std::{env, fs};
 
 use anyhow::{bail, Context};
 use console::style;
 
-use sqlx::any::{AnyConnectOptions, AnyKind};
 use sqlx::Connection;
 
 use crate::metadata::Metadata;
 use crate::opt::ConnectOpts;
-
-type QueryData = BTreeMap<String, serde_json::Value>;
-type JsonObject = serde_json::Map<String, serde_json::Value>;
 
 // TODO: replace with Metadata?
 #[derive(Debug)]
@@ -40,21 +34,21 @@ pub async fn run(ctx: &PrepareCtx) -> anyhow::Result<()> {
     } else {
         &ctx.manifest_dir
     };
+    let cache_dir = root.join(".sqlx");
 
-    run_prepare_step(ctx, &root.join(".sqlx"))?;
+    run_prepare_step(ctx, &cache_dir)?;
 
-    // TODO: print warning if no queries are generated?
-    // if data.is_empty() {
-    //     println!(
-    //         "{} no queries found; please ensure that the `offline` feature is enabled in sqlx",
-    //         style("warning:").yellow()
-    //     );
-    // }
-
-    println!(
-        "query data written to `.sqlx` in the current directory; \
+    if cache_dir.read_dir()?.next().is_none() {
+        println!(
+            "{} no queries found; please ensure that the `offline` feature is enabled in sqlx",
+            style("warning:").yellow()
+        );
+    } else {
+        println!(
+            "query data written to `.sqlx` in the current directory; \
          please check this into version control"
-    );
+        );
+    }
 
     Ok(())
 }
