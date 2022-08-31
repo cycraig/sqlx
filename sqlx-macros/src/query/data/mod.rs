@@ -1,5 +1,4 @@
 use crate::database::DatabaseExt;
-use sqlx_core::database::Database;
 use sqlx_core::describe::Describe;
 use sqlx_core::executor::Executor;
 

@@ -1,5 +1,4 @@
-use once_cell::sync::{Lazy, OnceCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::{self, File};
 use std::io::BufWriter;
@@ -7,18 +6,14 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use once_cell::sync::Lazy;
 use proc_macro2::Span;
-use serde::de::Visitor;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sqlx_core::database::Database;
+use serde::{Serialize, Serializer};
 
 use sqlx_core::describe::Describe;
 
 use crate::database::DatabaseExt;
-use crate::query;
-use crate::query::{Metadata, QueryMacroInput};
-
-use super::QueryData;
+use crate::query::{Metadata, QueryData};
 
 #[cfg(feature = "postgres")]
 use sqlx_core::postgres::Postgres;
@@ -207,7 +202,7 @@ pub(in crate::query) fn load_query_from_data_file(
         return Err(format!("hash collision for saved query data").into());
     }
 
-    macro_rules! to_dyn_data(
+    macro_rules! to_dyn_data (
             ($($featname:literal, $db:ty);*$(;)?) => {{
                 let dyn_data: Arc<dyn DynQueryData> = match &*offline_data.db_name {
                     $(

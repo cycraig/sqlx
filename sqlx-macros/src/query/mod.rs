@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs::metadata;
 use std::path::PathBuf;
 use std::str::FromStr;
 #[cfg(feature = "offline")]
@@ -31,8 +30,6 @@ struct Metadata {
     manifest_dir: PathBuf,
     offline: bool,
     database_url: Option<String>,
-    #[cfg(feature = "offline")]
-    package_name: String,
     #[cfg(feature = "offline")]
     target_dir: PathBuf,
     #[cfg(feature = "offline")]
@@ -78,11 +75,6 @@ static METADATA: Lazy<Metadata> = Lazy::new(|| {
         .into();
 
     #[cfg(feature = "offline")]
-    let package_name: String = env("CARGO_PKG_NAME")
-        .expect("`CARGO_PKG_NAME` must be set")
-        .into();
-
-    #[cfg(feature = "offline")]
     let target_dir = env("CARGO_TARGET_DIR").map_or_else(|_| "target".into(), |dir| dir.into());
 
     // If a .env file exists at CARGO_MANIFEST_DIR, load environment variables from this,
@@ -117,8 +109,6 @@ static METADATA: Lazy<Metadata> = Lazy::new(|| {
         manifest_dir,
         offline,
         database_url,
-        #[cfg(feature = "offline")]
-        package_name,
         #[cfg(feature = "offline")]
         target_dir,
         #[cfg(feature = "offline")]
@@ -262,9 +252,8 @@ fn expand_from_db(input: QueryMacroInput, db_url: &str) -> crate::Result<TokenSt
 
 #[cfg(feature = "offline")]
 pub fn expand_from_file(input: QueryMacroInput, file: PathBuf) -> crate::Result<TokenStream> {
-    use data::offline::DynQueryData;
-
-    let query_data = data::offline::load_query_from_data_file(file, &input.sql)?;
+    let query_data: Arc<dyn data::offline::DynQueryData> =
+        data::offline::load_query_from_data_file(file, &input.sql)?;
 
     match &*query_data.db_name() {
         #[cfg(feature = "postgres")]

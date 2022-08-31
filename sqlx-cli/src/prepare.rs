@@ -121,8 +121,6 @@ hint: This command only works in the manifest directory of a Cargo package."#
         .env("SQLX_OFFLINE", "false")
         .env("SQLX_OFFLINE_DIR", cache_dir);
 
-    println!("executing {:?}", check_cmd);
-
     let check_status = check_cmd.status()?;
     if !check_status.success() {
         bail!("`cargo check` failed with status: {}", check_status);
@@ -226,7 +224,6 @@ fn minimal_project_recompile_action(metadata: &Metadata) -> anyhow::Result<Proje
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::assert_eq;
 
     #[test]
