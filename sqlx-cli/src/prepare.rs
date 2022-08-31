@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
@@ -28,12 +28,12 @@ pub struct PrepareCtx {
     pub manifest_dir: PathBuf,
     pub target_dir: PathBuf,
     pub workspace_root: PathBuf,
-    pub connect_ops: ConnectOpts,
+    pub connect_opts: ConnectOpts,
 }
 
-pub fn run(ctx: &PrepareCtx) -> anyhow::Result<()> {
+pub async fn run(ctx: &PrepareCtx) -> anyhow::Result<()> {
     // Ensure the database server is available.
-    crate::connect(connect_opts).await?.close().await?;
+    crate::connect(&ctx.connect_opts).await?.close().await?;
 
     let root = if ctx.workspace {
         &ctx.workspace_root
@@ -59,9 +59,9 @@ pub fn run(ctx: &PrepareCtx) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn check(ctx: &PrepareCtx) -> anyhow::Result<()> {
+pub async fn check(ctx: &PrepareCtx) -> anyhow::Result<()> {
     // Ensure the database server is available.
-    crate::connect(connect_opts).await?.close().await?;
+    crate::connect(&ctx.connect_opts).await?.close().await?;
 
     // Re-generate and store the queries in a separate directory.
     let cache_dir = ctx.target_dir.join("sqlx");
@@ -97,27 +97,27 @@ hint: This command only works in the manifest directory of a Cargo package."#
     if ctx.workspace {
         // Try only triggering a recompile on crates that use `sqlx-macros` falling back to a full
         // clean on error
-        match setup_minimal_project_recompile(&cargo, &metadata) {
+        match setup_minimal_project_recompile(&ctx.cargo, &metadata) {
             Ok(()) => {}
             Err(err) => {
                 println!(
                     "Failed minimal recompile setup. Cleaning entire project. Err: {}",
                     err
                 );
-                let clean_status = Command::new(&cargo).arg("clean").status()?;
+                let clean_status = Command::new(&ctx.cargo).arg("clean").status()?;
                 if !clean_status.success() {
                     bail!("`cargo clean` failed with status: {}", clean_status);
                 }
             }
         };
 
-        check_cmd.arg("check").args(cargo_args);
+        check_cmd.arg("check").args(&ctx.cargo_args);
 
         // `cargo check` recompiles on changed rust flags which can be set either via the env var
         // or through the `rustflags` field in `$CARGO_HOME/config` when the env var isn't set.
         // Because of this we only pass in `$RUSTFLAGS` when present
         if let Ok(rustflags) = env::var("RUSTFLAGS") {
-            check_command.env("RUSTFLAGS", rustflags);
+            check_cmd.env("RUSTFLAGS", rustflags);
         }
     } else {
         check_cmd
@@ -132,11 +132,10 @@ hint: This command only works in the manifest directory of a Cargo package."#
                 "__sqlx_recompile_trigger=\"{}\"",
                 SystemTime::UNIX_EPOCH.elapsed()?.as_millis()
             ))
-            .env("CARGO_TARGET_DIR", metadata.target_directory().clone())
-            .status()?
+            .env("CARGO_TARGET_DIR", metadata.target_directory());
     }
     check_cmd
-        .env("DATABASE_URL", database_url)
+        .env("DATABASE_URL", &ctx.connect_opts.database_url)
         .env("SQLX_OFFLINE", "false")
         .env("SQLX_OFFLINE_DIR", cache_dir);
 
@@ -163,7 +162,10 @@ struct ProjectRecompileAction {
 /// crates within the current workspace have their source file's mtimes updated while crates
 /// outside the workspace are selectively `cargo clean -p`ed. In this way we can trigger a
 /// recompile of crates that may be using compile-time macros without forcing a full recompile
-fn setup_minimal_project_recompile(cargo: &str, metadata: &Metadata) -> anyhow::Result<()> {
+fn setup_minimal_project_recompile(
+    cargo: impl AsRef<OsStr>,
+    metadata: &Metadata,
+) -> anyhow::Result<()> {
     let ProjectRecompileAction {
         clean_packages,
         touch_paths,
@@ -176,7 +178,7 @@ fn setup_minimal_project_recompile(cargo: &str, metadata: &Metadata) -> anyhow::
     }
 
     for pkg_id in &clean_packages {
-        let clean_status = Command::new(cargo)
+        let clean_status = Command::new(cargo.as_ref())
             .args(&["clean", "-p", pkg_id])
             .status()?;
 

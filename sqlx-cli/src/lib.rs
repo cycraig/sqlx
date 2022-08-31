@@ -1,7 +1,7 @@
 use std::io;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::{Future, TryFutureExt};
 
 use sqlx::{AnyConnection, Connection};
@@ -11,6 +11,7 @@ use crate::prepare::PrepareCtx;
 
 pub use crate::opt::Opt;
 
+mod cargo;
 mod database;
 mod metadata;
 // mod migration;
@@ -101,15 +102,15 @@ pub async fn run(opt: Opt) -> Result<()> {
                 manifest_dir,
                 target_dir: metadata.target_directory,
                 workspace_root: metadata.workspace_root,
-                connect_ops,
+                connect_opts,
             };
 
             println!("{:?}", ctx);
 
             if check {
-                prepare::check(&ctx)?
+                prepare::check(&ctx).await?
             } else {
-                prepare::run(&ctx)?
+                prepare::run(&ctx).await?
             }
         }
     };

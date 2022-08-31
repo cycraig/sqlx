@@ -81,7 +81,7 @@ where
 {
     // TODO: is from_dyn_data still needed?
 
-    pub(crate) fn save_in(
+    pub(in crate::query) fn save_in(
         &self,
         dir: impl AsRef<Path>,
         meta: &Metadata,
@@ -89,10 +89,10 @@ where
     ) -> crate::Result<()> {
         // Output to a temporary directory first, then move/rename it atomically to avoid conflicts.
         let tmp_dir = meta.target_dir.join("sqlx");
-        fs::create_dir_all(&dir).map_err(|e| {
+        fs::create_dir_all(&tmp_dir).map_err(|e| {
             format!(
-                "failed to create offline query directory {}: {:?}",
-                dir.as_ref().display(),
+                "failed to create temporary offline query directory {}: {:?}",
+                tmp_dir.display(),
                 e
             )
         })?;
@@ -114,6 +114,13 @@ where
         // Renaming is atomic so we don't clash with other invocations trying to write
         // to the same place.
         let final_path = dir.as_ref().join(&format!("query-{}.json", self.hash));
+        fs::create_dir_all(&dir).map_err(|e| {
+            format!(
+                "failed to create offline query directory {}: {:?}",
+                dir.as_ref().display(),
+                e
+            )
+        })?;
         fs::rename(&tmp_path, &final_path)
             .map_err(|e| format!("failed to move query data to final destination: {:?}", e))?;
 
@@ -163,6 +170,74 @@ pub trait DynQueryData: Send + Sync + 'static {
     }
 }
 
+/// Loads a query given the path to its "query-<hash>.json" file. Subsequent calls for the same
+/// path are retrieved from an in-memory cache.
+pub(in crate::query) fn load_query_from_data_file(
+    path: impl AsRef<Path>,
+    query: &str,
+) -> crate::Result<Arc<dyn DynQueryData>> {
+    let path = path.as_ref();
+
+    let mut cache = OFFLINE_DATA_CACHE.lock().unwrap();
+    if let Some(cached) = cache.get(path).cloned() {
+        if query != cached.query() {
+            return Err(format!("hash collision for saved query data").into());
+        }
+        return Ok(cached);
+    }
+
+    #[cfg(procmacr2_semver_exempt)]
+    {
+        let path = path.as_ref().canonicalize()?;
+        let path = path.to_str().ok_or_else(|| {
+            format!(
+                "sqlx-data.json path cannot be represented as a string: {:?}",
+                path
+            )
+        })?;
+
+        proc_macro::tracked_path::path(path);
+    }
+
+    let offline_data_contents = fs::read_to_string(path)
+        .map_err(|e| format!("failed to read path {}: {}", path.display(), e))?;
+    let offline_data: RawQueryData = serde_json::from_str(&offline_data_contents)?;
+
+    if query != offline_data.query {
+        return Err(format!("hash collision for saved query data").into());
+    }
+
+    macro_rules! to_dyn_data(
+            ($($featname:literal, $db:ty);*$(;)?) => {{
+                let dyn_data: Arc<dyn DynQueryData> = match &*offline_data.db_name {
+                    $(
+                        #[cfg(feature = $featname)]
+                        <$db as DatabaseExt>::NAME => Arc::new(QueryData {
+                            query: offline_data.query,
+                            hash: offline_data.hash,
+                            db_name: SerializeDbName(PhantomData),
+                            describe: serde_json::from_str::<Describe<$db>>(offline_data.describe.get())?,
+                        }),
+                    )*
+                    other => return Err(format!("query data from filesystem used unknown database: {:?}; is the corresponding feature enabled?", other).into())
+                };
+
+                dyn_data
+            }}
+        );
+
+    let dyn_data = to_dyn_data!(
+        "postgres", Postgres;
+        "mysql", MySql;
+        "sqlite", Sqlite;
+        "mssql", Mssql;
+    );
+
+    let _ = cache.insert(path.to_owned(), dyn_data.clone());
+
+    Ok(dyn_data)
+}
+
 macro_rules! impl_dyn_query_data {
     ($($featname:literal, $db:ty, $method:ident);*$(;)?) => {$(
         #[cfg(feature = $featname)]
@@ -193,67 +268,8 @@ impl_dyn_query_data!(
     "mssql", Mssql, to_mssql;
 );
 
-pub fn get_data(query: &str, path: &Path) -> crate::Result<Arc<dyn DynQueryData>> {
-    let mut cache = OFFLINE_DATA_CACHE.lock().unwrap();
-
-    if let Some(cached) = cache.get(path).cloned() {
-        return Ok(cached);
-    }
-
-    #[cfg(procmacr2_semver_exempt)]
-    {
-        let path = path.as_ref().canonicalize()?;
-        let path = path.to_str().ok_or_else(|| {
-            format!(
-                "sqlx-data.json path cannot be represented as a string: {:?}",
-                path
-            )
-        })?;
-
-        proc_macro::tracked_path::path(path);
-    }
-
-    let offline_data_contents = fs::read_to_string(path)
-        .map_err(|e| format!("failed to read path {}: {}", path.display(), e))?;
-    let offline_data: RawQueryData = serde_json::from_str(&offline_data_contents)?;
-
-    if query != offline_data.query {
-        return Err(format!("hash collision for saved query data").into());
-    }
-
-    macro_rules! to_dyn_data(
-        ($($featname:literal, $db:ty);*$(;)?) => {{
-            let dyn_data: Arc<dyn DynQueryData> = match &*offline_data.db_name {
-                $(
-                    #[cfg(feature = $featname)]
-                    <$db as DatabaseExt>::NAME => Arc::new(QueryData {
-                        query: offline_data.query,
-                        hash: offline_data.hash,
-                        db_name: SerializeDbName(PhantomData),
-                        describe: serde_json::from_str::<Describe<$db>>(offline_data.describe.get())?,
-                    }),
-                )*
-                other => return Err(format!("query data from filesystem used unknown database: {:?}; is the corresponding feature enabled?", other).into())
-            };
-
-            dyn_data
-        }}
-    );
-
-    let dyn_data = to_dyn_data!(
-        "postgres", Postgres;
-        "mysql", MySql;
-        "sqlite", Sqlite;
-        "mssql", Mssql;
-    );
-
-    let _ = cache.insert(path.to_owned(), dyn_data.clone());
-
-    Ok(dyn_data)
-}
-
-/// Computes the SHA-256 digest of a string.
-pub(crate) fn hash_string(query: &str) -> String {
+/// Compute the SHA-256 digest of a string.
+pub(in crate::query) fn hash_string(query: &str) -> String {
     // picked `sha2` because it's already in the dependency tree for both MySQL and Postgres
     use sha2::{Digest, Sha256};
 

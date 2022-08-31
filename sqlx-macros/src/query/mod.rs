@@ -263,7 +263,7 @@ fn expand_from_db(input: QueryMacroInput, db_url: &str) -> crate::Result<TokenSt
 pub fn expand_from_file(input: QueryMacroInput, file: PathBuf) -> crate::Result<TokenStream> {
     use data::offline::DynQueryData;
 
-    let query_data = data::offline::get_data(&input.sql, &file)?;
+    let query_data = data::offline::load_query_from_data_file(file, &input.sql)?;
 
     match &*query_data.db_name() {
         #[cfg(feature = "postgres")]
