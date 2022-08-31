@@ -1,17 +1,17 @@
-use std::io;
 use std::time::Duration;
+use std::{env, io};
 
 use anyhow::{Context, Result};
 use futures::{Future, TryFutureExt};
 
 use sqlx::{AnyConnection, Connection};
 
+use crate::metadata::Metadata;
 use crate::opt::{Command, ConnectOpts, DatabaseCommand, MigrateCommand};
 use crate::prepare::PrepareCtx;
 
 pub use crate::opt::Opt;
 
-mod cargo;
 mod database;
 mod metadata;
 // mod migration;
@@ -88,24 +88,17 @@ pub async fn run(opt: Opt) -> Result<()> {
             connect_opts,
             args,
         } => {
-            let cargo_path = cargo::cargo_path()?;
-            println!("cargo path: {:?}", cargo_path);
-
-            let manifest_dir = cargo::manifest_dir(&cargo_path)?;
-            let metadata = cargo::metadata(&cargo_path)
-                .context("`prepare` subcommand may only be invoked as `cargo sqlx prepare`")?;
+            let cargo = env::var_os("CARGO")
+              .context("failed to get value of `CARGO`; `prepare` subcommand may only be invoked as `cargo sqlx prepare`")?;
+            let metadata: Metadata = Metadata::from_current_directory(&cargo)?;
 
             let ctx = PrepareCtx {
                 workspace,
-                cargo: cargo_path,
+                cargo,
                 cargo_args: args,
-                manifest_dir,
-                target_dir: metadata.target_directory,
-                workspace_root: metadata.workspace_root,
+                metadata,
                 connect_opts,
             };
-
-            println!("{:?}", ctx);
 
             if check {
                 prepare::check(&ctx).await?

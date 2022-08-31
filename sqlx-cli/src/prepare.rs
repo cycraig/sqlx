@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -10,31 +10,28 @@ use console::style;
 
 use sqlx::Connection;
 
-use crate::metadata::Metadata;
+use crate::metadata::{manifest_dir, Metadata};
 use crate::opt::ConnectOpts;
 
-// TODO: replace with Metadata?
-#[derive(Debug)]
 pub struct PrepareCtx {
     pub workspace: bool,
     pub cargo: OsString,
     pub cargo_args: Vec<String>,
-    pub manifest_dir: PathBuf,
-    pub target_dir: PathBuf,
-    pub workspace_root: PathBuf,
+    pub metadata: Metadata,
     pub connect_opts: ConnectOpts,
 }
+
+const OFFLINE_FOLDER_NAME: &str = ".sqlx";
 
 pub async fn run(ctx: &PrepareCtx) -> anyhow::Result<()> {
     // Ensure the database server is available.
     crate::connect(&ctx.connect_opts).await?.close().await?;
 
-    let root = if ctx.workspace {
-        &ctx.workspace_root
+    let cache_dir = if ctx.workspace {
+        ctx.metadata.workspace_root().join(OFFLINE_FOLDER_NAME)
     } else {
-        &ctx.manifest_dir
+        manifest_dir(&ctx.cargo)?.join(OFFLINE_FOLDER_NAME)
     };
-    let cache_dir = root.join(".sqlx");
 
     run_prepare_step(ctx, &cache_dir)?;
 
@@ -58,7 +55,7 @@ pub async fn check(ctx: &PrepareCtx) -> anyhow::Result<()> {
     crate::connect(&ctx.connect_opts).await?.close().await?;
 
     // Re-generate and store the queries in a separate directory.
-    let cache_dir = ctx.target_dir.join("sqlx");
+    let cache_dir = ctx.metadata.target_directory().join("sqlx");
     run_prepare_step(ctx, &cache_dir)?;
 
     // TODO: Compare .sqlx to target/sqlx
@@ -78,20 +75,11 @@ hint: This command only works in the manifest directory of a Cargo package."#
     // Clear or create the directory.
     remove_dir_all::ensure_empty_dir(cache_dir)?;
 
-    let output = Command::new(&ctx.cargo)
-        .args(&["metadata", "--format-version=1"])
-        .output()
-        .context("Could not fetch metadata")?;
-
-    let output_str =
-        std::str::from_utf8(&output.stdout).context("Invalid `cargo metadata` output")?;
-    let metadata: Metadata = output_str.parse()?;
-
     let mut check_cmd = Command::new(&ctx.cargo);
     if ctx.workspace {
         // Try only triggering a recompile on crates that use `sqlx-macros` falling back to a full
         // clean on error
-        match setup_minimal_project_recompile(&ctx.cargo, &metadata) {
+        match setup_minimal_project_recompile(&ctx.cargo, &ctx.metadata) {
             Ok(()) => {}
             Err(err) => {
                 println!(
@@ -126,7 +114,7 @@ hint: This command only works in the manifest directory of a Cargo package."#
                 "__sqlx_recompile_trigger=\"{}\"",
                 SystemTime::UNIX_EPOCH.elapsed()?.as_millis()
             ))
-            .env("CARGO_TARGET_DIR", metadata.target_directory());
+            .env("CARGO_TARGET_DIR", ctx.metadata.target_directory());
     }
     check_cmd
         .env("DATABASE_URL", &ctx.connect_opts.database_url)

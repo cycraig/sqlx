@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fs::metadata;
 use std::path::PathBuf;
 use std::str::FromStr;
 #[cfg(feature = "offline")]
@@ -409,20 +410,24 @@ where
     // If the build is offline, the cache is our input so it's pointless to also write data for it.
     #[cfg(feature = "offline")]
     if !offline {
-        // // Use a separate sub-directory for each crate in a workspace. This avoids a race condition
-        // // where `prepare` can pull in queries from multiple crates if they happen to be generated
-        // // simultaneously (e.g. Rust Analyzer building in the background).
-        // let save_dir = METADATA
-        //     .target_dir
-        //     .join("sqlx")
-        //     .join(&METADATA.package_name);
-        // std::fs::create_dir_all(&save_dir)?;
-        // data.save_in(save_dir, input.src_span)?;
         use std::{fs, io};
 
-        let save_dir: PathBuf = env("SQLX_OFFLINE_DIR")
-            .map_err(|err| format!("SQLX_OFFLINE_DIR should be set by prepare: {}", err))?
-            .into();
+        let save_dir: PathBuf = if let Ok(dir) = env("SQLX_OFFLINE_DIR") {
+            // SQLX_OFFLINE_DIR is set by `cargo sqlx prepare`.
+            dir.into()
+        } else {
+            // Default to "target/sqlx" during regular `cargo check` calls.
+            let dir = METADATA.target_dir.join("sqlx");
+            std::fs::create_dir_all(&dir).map_err(|err| {
+                <Box<dyn std::error::Error>>::from(format!(
+                    "failed to create offline query directory '{}': {}",
+                    dir.display(),
+                    err
+                ))
+            })?;
+            dir
+        };
+
         match fs::metadata(&save_dir) {
             Err(e) => {
                 if e.kind() != io::ErrorKind::NotFound {

@@ -1,12 +1,14 @@
-use anyhow::{Context, Result};
-use cargo_metadata::{
-    Metadata as CargoMetadata, Package as MetadataPackage, PackageId as MetadataId,
-};
-
+use std::ffi::OsStr;
 use std::{
     collections::{btree_map, BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    process::Command,
     str::FromStr,
+};
+
+use anyhow::{Context, Result};
+use cargo_metadata::{
+    Metadata as CargoMetadata, Package as MetadataPackage, PackageId as MetadataId,
 };
 
 /// The minimal amount of package information we care about
@@ -50,6 +52,8 @@ pub struct Metadata {
     packages: BTreeMap<MetadataId, Package>,
     /// All of the crates in the current workspace
     workspace_members: Vec<MetadataId>,
+    /// Workspace root path.
+    workspace_root: PathBuf,
     /// Maps each dependency to its set of dependents
     reverse_deps: BTreeMap<MetadataId, BTreeSet<MetadataId>>,
     /// The target directory of the project
@@ -62,6 +66,18 @@ pub struct Metadata {
 }
 
 impl Metadata {
+    /// Attempts to parse the manifest from the current working directory using `cargo metadata`.
+    pub fn from_current_directory(cargo: &OsStr) -> crate::Result<Self> {
+        let output = Command::new(&cargo)
+            .args(&["metadata", "--format-version=1"])
+            .output()
+            .context("Could not fetch metadata")?;
+
+        let output_str =
+            std::str::from_utf8(&output.stdout).context("Invalid `cargo metadata` output")?;
+        output_str.parse()
+    }
+
     pub fn package(&self, id: &MetadataId) -> Option<&Package> {
         self.packages.get(id)
     }
@@ -72,6 +88,10 @@ impl Metadata {
 
     pub fn workspace_members(&self) -> &[MetadataId] {
         &self.workspace_members
+    }
+
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
     }
 
     pub fn target_directory(&self) -> &Path {
@@ -108,7 +128,8 @@ impl FromStr for Metadata {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let cargo_metadata: CargoMetadata = serde_json::from_str(s)?;
+        let cargo_metadata: CargoMetadata =
+            serde_json::from_str(s).context("failed to parse cargo metadata")?;
 
         // Extract the package for the current working directory, will be empty if running
         // from a workspace root.
@@ -117,6 +138,7 @@ impl FromStr for Metadata {
         let CargoMetadata {
             packages: metadata_packages,
             workspace_members,
+            workspace_root,
             resolve,
             target_directory,
             ..
@@ -142,14 +164,33 @@ impl FromStr for Metadata {
             }
         }
 
+        let workspace_root = workspace_root.into_std_path_buf();
         let target_directory = target_directory.into_std_path_buf();
 
         Ok(Self {
             packages,
             workspace_members,
+            workspace_root,
             reverse_deps,
             target_directory,
             current_package,
         })
     }
+}
+
+pub fn manifest_dir(cargo: &OsStr) -> anyhow::Result<PathBuf> {
+    let stdout = Command::new(&cargo)
+        .args(&["locate-project", "--message-format=plain"])
+        .output()
+        .context("could not locate manifest directory")?
+        .stdout;
+
+    let mut manifest_path: PathBuf = std::str::from_utf8(&stdout)
+        .context("output of `cargo locate-project` was not valid UTF-8")?
+        // get rid of the trailing newline
+        .trim()
+        .into();
+
+    manifest_path.pop();
+    Ok(manifest_path)
 }
