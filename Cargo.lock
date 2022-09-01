@@ -2772,6 +2772,7 @@ dependencies = [
  "remove_dir_all 0.7.0",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tokio",
  "url",
