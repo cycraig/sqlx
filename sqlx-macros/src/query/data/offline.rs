@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::{self, File};
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -98,13 +98,13 @@ where
             "query-{}.json",
             hash_string(&format!("{:?}", input_span))
         ));
-        serde_json::to_writer_pretty(
-            BufWriter::new(
-                File::create(&tmp_path)
-                    .map_err(|e| format!("failed to open path {}: {}", tmp_path.display(), e))?,
-            ),
-            self,
-        )?;
+        let mut buf_writer = BufWriter::new(
+            File::create(&tmp_path)
+                .map_err(|e| format!("failed to open path {}: {}", tmp_path.display(), e))?,
+        );
+        serde_json::to_writer_pretty(&mut buf_writer, self)?;
+        // Explicitly flush to ensure the file is written before attempting to move it.
+        buf_writer.flush()?;
 
         // Renaming is atomic so we don't clash with other invocations trying to write
         // to the same place.
@@ -117,7 +117,7 @@ where
             )
         })?;
         fs::rename(&tmp_path, &final_path)
-            .map_err(|e| format!("failed to move query data to final destination: {:?}", e))?;
+            .map_err(|e| format!("failed to move query data to final destination: {}", e))?;
 
         Ok(())
     }

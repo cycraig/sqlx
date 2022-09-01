@@ -159,6 +159,9 @@ hint: This command only works in the manifest directory of a Cargo package."#
         check_cmd
             .arg("check")
             .args(&ctx.cargo_args)
+            // Override target directory to prevent moving the query data failing if
+            // it is relative to the workspace root when using multiple targets in a sub-crate.
+            .env("CARGO_TARGET_DIR", &ctx.metadata.target_directory())
             .env("DATABASE_URL", &ctx.connect_opts.database_url)
             .env("SQLX_OFFLINE", "false")
             .env("SQLX_OFFLINE_DIR", cache_dir);
