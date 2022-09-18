@@ -20,7 +20,7 @@ members = [
 
 [package]
 name = "sqlx"
-version = "0.6.1"
+version = "0.6.2"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/launchbadge/sqlx"
@@ -125,8 +125,8 @@ bstr = ["sqlx-core/bstr"]
 git2 = ["sqlx-core/git2"]
 
 [dependencies]
-sqlx-core = { version = "0.6.1", path = "sqlx-core", default-features = false }
-sqlx-macros = { version = "0.6.1", path = "sqlx-macros", default-features = false, optional = true }
+sqlx-core = { version = "0.6.2", path = "sqlx-core", default-features = false }
+sqlx-macros = { version = "0.6.2", path = "sqlx-macros", default-features = false, optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.52"
@@ -148,7 +148,7 @@ rand_xoshiro = "0.6.0"
 hex = "0.4.3"
 tempdir = "0.3.7"
 # Needed to test SQLCipher
-libsqlite3-sys = { version = "*", features = ["bundled-sqlcipher"] }
+libsqlite3-sys = { version = "0.24", features = ["bundled-sqlcipher"] }
 
 #
 # Any
@@ -212,6 +212,11 @@ name = "sqlite-test-attr"
 path = "tests/sqlite/test-attr.rs"
 required-features = ["sqlite", "macros", "migrate"]
 
+[[test]]
+name = "sqlite-migrate"
+path = "tests/sqlite/migrate.rs"
+required-features = ["sqlite", "macros", "migrate"]
+
 #
 # MySQL
 #
@@ -239,6 +244,11 @@ required-features = ["mysql", "macros"]
 [[test]]
 name = "mysql-test-attr"
 path = "tests/mysql/test-attr.rs"
+required-features = ["mysql", "macros", "migrate"]
+
+[[test]]
+name = "mysql-migrate"
+path = "tests/mysql/migrate.rs"
 required-features = ["mysql", "macros", "migrate"]
 
 #
@@ -273,6 +283,11 @@ required-features = ["postgres", "macros"]
 [[test]]
 name = "postgres-test-attr"
 path = "tests/postgres/test-attr.rs"
+required-features = ["postgres", "macros", "migrate"]
+
+[[test]]
+name = "postgres-migrate"
+path = "tests/postgres/migrate.rs"
 required-features = ["postgres", "macros", "migrate"]
 
 #
