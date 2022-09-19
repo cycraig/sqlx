@@ -148,29 +148,39 @@ pub fn expand_input(input: QueryMacroInput) -> crate::Result<TokenStream> {
 
         #[cfg(feature = "offline")]
         _ => {
-            // Try load the cached query from the current package directory.
+            // Try load the cached query metadata file.
             let filename = format!("query-{}.json", input.hash);
-            let local_data_dir = METADATA.manifest_dir
-              .join(".sqlx");
-            let local_data_file_path = local_data_dir.join(&filename);
 
-            if local_data_file_path.exists() {
-                expand_from_file(input, local_data_file_path)
+            // Check SQLX_OFFLINE_DIR, then local .sqlx, then workspace .sqlx.
+            let query_file_path = if let Some(offline_dir_path) = env("SQLX_OFFLINE_DIR")
+              .ok()
+              .map(PathBuf::from)
+              .map(|dir| dir.join(&filename))
+              .filter(|dir| dir.exists()) {
+                offline_dir_path
             } else {
-                // See if the query was included in a workspace data cache.
-                let workspace_data_file_path = METADATA.workspace_root()
+                // Local .sqlx
+                let local_path = METADATA.manifest_dir
                   .join(".sqlx")
                   .join(&filename);
-                if workspace_data_file_path.exists() {
-                    expand_from_file(input, workspace_data_file_path)
+                if local_path.exists() {
+                    local_path
                 } else {
-                    Err(
-                        "`DATABASE_URL` must be set, or `cargo sqlx prepare` must have been run \
-                     and .sqlx must exist, to use query macros"
-                            .into(),
-                    )
+                    // Workspace .sqlx
+                    let workspace_path = METADATA.workspace_root()
+                      .join(".sqlx")
+                      .join(&filename);
+                    if !workspace_path.exists() {
+                        return Err(
+                            "`DATABASE_URL` must be set, or `cargo sqlx prepare` must have been \
+                            run and .sqlx must exist, to use query macros".into()
+                        );
+                    }
+                    workspace_path
                 }
-            }
+            };
+
+            expand_from_file(input, query_file_path)
         }
 
         #[cfg(not(feature = "offline"))]

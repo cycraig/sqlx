@@ -74,8 +74,6 @@ impl<DB: DatabaseExt> QueryData<DB>
 where
     Describe<DB>: serde::Serialize + serde::de::DeserializeOwned,
 {
-    // TODO: is from_dyn_data still needed?
-
     pub(in crate::query) fn save_in(
         &self,
         dir: impl AsRef<Path>,
