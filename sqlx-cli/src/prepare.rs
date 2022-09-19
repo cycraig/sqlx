@@ -89,18 +89,18 @@ pub async fn check(ctx: &PrepareCtx) -> anyhow::Result<()> {
     .collect();
 
     // Error: files in cache but not .sqlx.
-    if !cache_filenames
+    if cache_filenames
         .difference(&prepare_filenames)
         .next()
-        .is_none()
+        .is_some()
     {
         bail!("prepare check failed: .sqlx is missing one or more queries; you should re-run sqlx prepare");
     }
     // Warning: files in .sqlx but not cache.
-    if !prepare_filenames
+    if prepare_filenames
         .difference(&cache_filenames)
         .next()
-        .is_none()
+        .is_some()
     {
         println!(
             "{} potentially unused queries found in .sqlx; you may want to re-run sqlx prepare",
@@ -252,7 +252,7 @@ fn minimal_project_recompile_action(metadata: &Metadata) -> anyhow::Result<Proje
     let mut in_workspace_dependents = Vec::new();
     let mut out_of_workspace_dependents = Vec::new();
     for dependent in sqlx_macros_dependents {
-        if metadata.workspace_members().contains(&dependent) {
+        if metadata.workspace_members().contains(dependent) {
             in_workspace_dependents.push(dependent);
         } else {
             out_of_workspace_dependents.push(dependent);

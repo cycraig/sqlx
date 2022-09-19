@@ -117,7 +117,7 @@ impl Metadata {
         if let Some(immediate_dependents) = self.reverse_deps.get(id) {
             for immediate_dependent in immediate_dependents {
                 if dependents.insert(immediate_dependent) {
-                    self.all_dependents_of_helper(&immediate_dependent, dependents);
+                    self.all_dependents_of_helper(immediate_dependent, dependents);
                 }
             }
         }
