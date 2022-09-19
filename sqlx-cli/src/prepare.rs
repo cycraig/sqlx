@@ -136,6 +136,7 @@ hint: This command only works in the manifest directory of a Cargo package."#
     );
 
     // Clear or create the directory.
+    // TODO: only remove query*.json files to avoid accidentally deleting user files?
     remove_dir_all::ensure_empty_dir(cache_dir)?;
 
     // Try only triggering a recompile on crates that use `sqlx-macros` falling back to a full

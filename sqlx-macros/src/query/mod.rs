@@ -401,39 +401,27 @@ where
     if !offline {
         use std::{fs, io};
 
-        let save_dir: PathBuf = if let Ok(dir) = env("SQLX_OFFLINE_DIR") {
-            // SQLX_OFFLINE_DIR is set by `cargo sqlx prepare`.
-            dir.into()
-        } else {
-            // Default to "target/sqlx" during regular `cargo check` calls.
-            let dir = METADATA.target_dir.join("sqlx");
-            std::fs::create_dir_all(&dir).map_err(|err| {
-                <Box<dyn std::error::Error>>::from(format!(
-                    "failed to create offline query directory '{}': {}",
-                    dir.display(),
-                    err
-                ))
-            })?;
-            dir
-        };
+        // Only save query metadata if SQLX_OFFLINE_DIR is set manually or by `cargo sqlx prepare`.
+        if let Ok(dir) = env("SQLX_OFFLINE_DIR") {
+            let save_dir: PathBuf = dir.into();
 
-        match fs::metadata(&save_dir) {
-            Err(e) => {
-                if e.kind() != io::ErrorKind::NotFound {
-                    // Can't obtain information about .sqlx
-                    return Err(e.into());
+            match fs::metadata(&save_dir) {
+                Err(e) => {
+                    if e.kind() != io::ErrorKind::NotFound {
+                        // Can't obtain information about .sqlx
+                        return Err(e.into());
+                    }
+                    // .sqlx doesn't exist.
+                    return Err(".sqlx directory does not exist".into());
                 }
+                Ok(meta) => {
+                    if !meta.is_dir() {
+                        return Err(".sqlx exists, but is not a directory".into());
+                    }
 
-                // .sqlx doesn't exist, do nothing
-                // TODO: error?
-            }
-            Ok(meta) => {
-                if !meta.is_dir() {
-                    return Err(".sqlx exists, but is not a directory".into());
+                    // .sqlx exists and is a directory, store data.
+                    data.save_in(save_dir, &METADATA, input.src_span)?;
                 }
-
-                // .sqlx exists and is a directory, store data
-                data.save_in(save_dir, &METADATA, input.src_span)?;
             }
         }
     }
