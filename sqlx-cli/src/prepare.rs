@@ -135,25 +135,20 @@ fn run_prepare_step(ctx: &PrepareCtx, cache_dir: &Path) -> anyhow::Result<()> {
 hint: This command only works in the manifest directory of a Cargo package."#
     );
 
-    // Clear or create the directory.
+    // Create and/or clean the directory.
     // TODO: only remove query*.json files to avoid accidentally deleting user files?
-    remove_dir_all::ensure_empty_dir(cache_dir)?;
+    fs::create_dir_all(cache_dir).context(format!(
+        "Failed to create query cache directory: {:?}",
+        cache_dir
+    ))?;
+    remove_dir_all::ensure_empty_dir(cache_dir).context(format!(
+        "Failed to clean query cache directory: {:?}",
+        cache_dir
+    ))?;
 
     // Try only triggering a recompile on crates that use `sqlx-macros` falling back to a full
     // clean on error
-    match setup_minimal_project_recompile(&ctx.cargo, &ctx.metadata, ctx.workspace) {
-        Ok(()) => {}
-        Err(err) => {
-            println!(
-                "Failed minimal recompile setup. Cleaning entire project. Err: {}",
-                err
-            );
-            let clean_status = Command::new(&ctx.cargo).arg("clean").status()?;
-            if !clean_status.success() {
-                bail!("`cargo clean` failed with status: {}", clean_status);
-            }
-        }
-    };
+    setup_minimal_project_recompile(&ctx.cargo, &ctx.metadata, ctx.workspace)?;
 
     let check_status = {
         let mut check_cmd = Command::new(&ctx.cargo);
@@ -203,25 +198,53 @@ fn setup_minimal_project_recompile(
     metadata: &Metadata,
     workspace: bool,
 ) -> anyhow::Result<()> {
-    let ProjectRecompileAction {
-        clean_packages,
-        touch_paths,
-    } = if workspace {
-        minimal_project_recompile_action(metadata)?
+    let recompile_action: ProjectRecompileAction = if workspace {
+        minimal_project_recompile_action(metadata)
     } else {
         // Only touch the current crate.
         ProjectRecompileAction {
             clean_packages: Vec::new(),
-            touch_paths: metadata.current_package().context("failed to get package in current working directory, pass `--merged` if running from a workspace root")?.src_paths().to_vec(),
+            touch_paths: metadata.current_package()
+              .context("failed to get package in current working directory, pass `--workspace` if running from a workspace root")?
+              .src_paths()
+              .to_vec(),
         }
     };
 
+    match minimal_project_clean(&cargo, recompile_action) {
+        Ok(()) => {}
+        Err(err) => {
+            println!(
+                "Failed minimal recompile setup. Cleaning entire project. Err: {}",
+                err
+            );
+            let clean_status = Command::new(&cargo).arg("clean").status()?;
+            if !clean_status.success() {
+                bail!("`cargo clean` failed with status: {}", clean_status);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn minimal_project_clean(
+    cargo: impl AsRef<OsStr>,
+    action: ProjectRecompileAction,
+) -> anyhow::Result<()> {
+    let ProjectRecompileAction {
+        clean_packages,
+        touch_paths,
+    } = action;
+
+    // Update the modified timestamp of package files to force a selective recompilation.
     for file in touch_paths {
         let now = filetime::FileTime::now();
         filetime::set_file_times(&file, now, now)
             .with_context(|| format!("Failed to update mtime for {:?}", file))?;
     }
 
+    // Clean entire packages.
     for pkg_id in &clean_packages {
         let clean_status = Command::new(cargo.as_ref())
             .args(&["clean", "-p", pkg_id])
@@ -235,7 +258,7 @@ fn setup_minimal_project_recompile(
     Ok(())
 }
 
-fn minimal_project_recompile_action(metadata: &Metadata) -> anyhow::Result<ProjectRecompileAction> {
+fn minimal_project_recompile_action(metadata: &Metadata) -> ProjectRecompileAction {
     // Get all the packages that depend on `sqlx-macros`
     let mut sqlx_macros_dependents = BTreeSet::new();
     let sqlx_macros_ids: BTreeSet<_> = metadata
@@ -280,10 +303,10 @@ fn minimal_project_recompile_action(metadata: &Metadata) -> anyhow::Result<Proje
         })
         .collect();
 
-    Ok(ProjectRecompileAction {
+    ProjectRecompileAction {
         clean_packages: packages_to_clean,
         touch_paths: files_to_touch,
-    })
+    }
 }
 
 #[cfg(test)]
