@@ -174,7 +174,7 @@ pub(in crate::query) fn load_query_from_data_file(
     let mut cache = OFFLINE_DATA_CACHE.lock().unwrap();
     if let Some(cached) = cache.get(path).cloned() {
         if query != cached.query() {
-            return Err(format!("hash collision for saved query data").into());
+            return Err("hash collision for saved query data".into());
         }
         return Ok(cached);
     }
@@ -197,7 +197,7 @@ pub(in crate::query) fn load_query_from_data_file(
     let offline_data: RawQueryData = serde_json::from_str(&offline_data_contents)?;
 
     if query != offline_data.query {
-        return Err(format!("hash collision for saved query data").into());
+        return Err("hash collision for saved query data".into());
     }
 
     macro_rules! to_dyn_data (

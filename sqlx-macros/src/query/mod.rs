@@ -152,32 +152,27 @@ pub fn expand_input(input: QueryMacroInput) -> crate::Result<TokenStream> {
             let filename = format!("query-{}.json", input.hash);
 
             // Check SQLX_OFFLINE_DIR, then local .sqlx, then workspace .sqlx.
-            let query_file_path = if let Some(offline_dir_path) = env("SQLX_OFFLINE_DIR")
-              .ok()
-              .map(PathBuf::from)
-              .map(|dir| dir.join(&filename))
-              .filter(|dir| dir.exists()) {
-                offline_dir_path
+            let query_file_path = if let Some(sqlx_offline_dir_path) = env("SQLX_OFFLINE_DIR")
+                .ok()
+                .map(PathBuf::from)
+                .map(|path| path.join(&filename))
+                .filter(|path| path.exists()) {
+                sqlx_offline_dir_path
+            } else if let Some(local_path) = Some(METADATA.manifest_dir
+                .join(".sqlx")
+                .join(&filename))
+                .filter(|path| path.exists()) {
+                local_path
+            } else if let Some(workspace_path) = Some(METADATA.workspace_root()
+                .join(".sqlx")
+                .join(&filename))
+                .filter(|path| path.exists()) {
+                workspace_path
             } else {
-                // Local .sqlx
-                let local_path = METADATA.manifest_dir
-                  .join(".sqlx")
-                  .join(&filename);
-                if local_path.exists() {
-                    local_path
-                } else {
-                    // Workspace .sqlx
-                    let workspace_path = METADATA.workspace_root()
-                      .join(".sqlx")
-                      .join(&filename);
-                    if !workspace_path.exists() {
-                        return Err(
-                            "`DATABASE_URL` must be set, or `cargo sqlx prepare` must have been \
-                            run and .sqlx must exist, to use query macros".into()
-                        );
-                    }
-                    workspace_path
-                }
+                return Err(
+                    "`DATABASE_URL` must be set, or `cargo sqlx prepare` must have been run \
+                    and .sqlx must exist, to use query macros".into()
+                );
             };
 
             expand_from_file(input, query_file_path)
@@ -265,7 +260,7 @@ pub fn expand_from_file(input: QueryMacroInput, file: PathBuf) -> crate::Result<
     let query_data: Arc<dyn data::offline::DynQueryData> =
         data::offline::load_query_from_data_file(file, &input.sql)?;
 
-    match &*query_data.db_name() {
+    match query_data.db_name() {
         #[cfg(feature = "postgres")]
         sqlx_core::postgres::Postgres::NAME => {
             expand_with_data(input, query_data.to_postgres(), true)
