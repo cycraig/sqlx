@@ -107,13 +107,6 @@ where
         // Renaming is atomic so we don't clash with other invocations trying to write
         // to the same place.
         let final_path = dir.as_ref().join(&format!("query-{}.json", self.hash));
-        fs::create_dir_all(&dir).map_err(|e| {
-            format!(
-                "failed to create offline query directory {}: {:?}",
-                dir.as_ref().display(),
-                e
-            )
-        })?;
         fs::rename(&tmp_path, &final_path)
             .map_err(|e| format!("failed to move query data to final destination: {}", e))?;
 

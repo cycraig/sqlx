@@ -407,25 +407,30 @@ where
         use std::{fs, io};
 
         // Only save query metadata if SQLX_OFFLINE_DIR is set manually or by `cargo sqlx prepare`.
+        // Note: in a cargo workspace this path is relative to the root.
         if let Ok(dir) = env("SQLX_OFFLINE_DIR") {
-            let save_dir: PathBuf = dir.into();
+            let path: PathBuf = (&dir).into();
 
-            match fs::metadata(&save_dir) {
+            match fs::metadata(&path) {
                 Err(e) => {
                     if e.kind() != io::ErrorKind::NotFound {
                         // Can't obtain information about .sqlx
-                        return Err(e.into());
+                        return Err(format!("{}: {}", e, dir).into());
                     }
                     // .sqlx doesn't exist.
-                    return Err(".sqlx directory does not exist".into());
+                    return Err(format!("sqlx offline directory does not exist: {}", dir).into());
                 }
                 Ok(meta) => {
                     if !meta.is_dir() {
-                        return Err(".sqlx exists, but is not a directory".into());
+                        return Err(format!(
+                            "sqlx offline path exists, but is not a directory: {}",
+                            dir
+                        )
+                        .into());
                     }
 
                     // .sqlx exists and is a directory, store data.
-                    data.save_in(save_dir, &METADATA, input.src_span)?;
+                    data.save_in(path, &METADATA, input.src_span)?;
                 }
             }
         }
