@@ -353,7 +353,7 @@ jobs:
           command: test
           args: >
             --no-default-features
-            --features any,mysql,macros,migrate,all-types,runtime-${{ matrix.runtime }}-${{ matrix.tls }}
+            --features any,mysql,macros,migrate,all-types,offline,runtime-${{ matrix.runtime }}-${{ matrix.tls }}
         env:
           DATABASE_URL: mysql://root:password@localhost:3306/sqlx
           SQLX_OFFLINE_DIR: .sqlx
@@ -374,7 +374,9 @@ jobs:
           SQLX_OFFLINE_DIR: .sqlx
 
       # Test macros in offline mode (still needs DATABASE_URL to run)
+      # MySQL 5.7 supports TLS but not TLSv1.3 as required by RusTLS.
       - uses: actions-rs/cargo@v1
+        if: ${{ !(matrix.mysql == '5_7' && matrix.tls == 'rustls') }}
         with:
           command: test
           args: >
